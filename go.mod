@@ -1,3 +1,3 @@
 module github.com/database64128/conn-opener-go
 
-go 1.19
+go 1.20

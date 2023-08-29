@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -50,12 +50,14 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	logger := slog.Default()
 
 	if *useTCP {
 		for i := 0; i < *concurrency; i++ {
+			logger := logger.With("network", "tcp", "index", i)
 			wg.Add(1)
 			go func() {
-				doTCP(*endpoint, b)
+				doTCP(logger, *endpoint, b)
 				wg.Done()
 			}()
 		}
@@ -63,9 +65,10 @@ func main() {
 
 	if *useUDP {
 		for i := 0; i < *concurrency; i++ {
+			logger := logger.With("network", "udp", "index", i)
 			wg.Add(1)
 			go func() {
-				doUDP(*endpoint, b, *packetInterval)
+				doUDP(logger, *endpoint, b, *packetInterval)
 				wg.Done()
 			}()
 		}
@@ -74,18 +77,18 @@ func main() {
 	wg.Wait()
 }
 
-func doTCP(endpoint string, b []byte) {
+func doTCP(logger *slog.Logger, endpoint string, b []byte) {
 	for {
 		c, err := net.Dial("tcp", endpoint)
 		if err != nil {
-			log.Printf("Failed to dial %s: %v", endpoint, err)
+			logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 			time.Sleep(backoffDuration)
 			continue
 		}
 
 		if len(b) > 0 {
 			if _, err = c.Write(b); err != nil {
-				log.Printf("Failed to write payload: %v", err)
+				logger.Warn("Failed to write payload", "error", err)
 				c.Close()
 				time.Sleep(backoffDuration)
 				continue
@@ -93,7 +96,7 @@ func doTCP(endpoint string, b []byte) {
 		}
 
 		n, err := io.Copy(io.Discard, c)
-		log.Printf("Read %d bytes with error: %v", n, err)
+		logger.Info("Read bytes", "bytes", n, "error", err)
 		c.Close()
 		if err != nil {
 			time.Sleep(backoffDuration)
@@ -101,17 +104,17 @@ func doTCP(endpoint string, b []byte) {
 	}
 }
 
-func doUDP(endpoint string, b []byte, interval time.Duration) {
+func doUDP(logger *slog.Logger, endpoint string, b []byte, interval time.Duration) {
 	c, err := net.Dial("udp", endpoint)
 	if err != nil {
-		log.Printf("Failed to dial %s: %v", endpoint, err)
+		logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 		return
 	}
 	defer c.Close()
 
 	for {
 		if _, err = c.Write(b); err != nil {
-			log.Printf("Failed to write message: %v", err)
+			logger.Warn("Failed to write message", "error", err)
 		}
 		time.Sleep(interval)
 	}

@@ -27,13 +27,13 @@ func main() {
 	flag.Parse()
 
 	if !*useTCP && !*useUDP {
-		fmt.Println("Use of either TCP or UDP is required.")
+		fmt.Fprintln(os.Stderr, "Use of either TCP or UDP is required.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
 	if *concurrency < 1 {
-		fmt.Println("Concurrency must be at least 1.")
+		fmt.Fprintln(os.Stderr, "Concurrency must be at least 1.")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -44,7 +44,7 @@ func main() {
 		var err error
 		b, err = base64.StdEncoding.DecodeString(*payload)
 		if err != nil {
-			fmt.Printf("Failed to decode payload: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to decode payload: %v\n", err)
 			os.Exit(1)
 		}
 	}

@@ -15,21 +15,28 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux/archlinux:base-devel
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Install Git & Go
-        run: pacman -Syu --needed --noconfirm gcc git go
-
-      - name: Disable Git's stupid security theater
-        run: git config --global safe.directory '*'
-
       - uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
 
       - name: Build
         run: go build -v -trimpath -ldflags '-s -w'
 
       - name: Test
         run: go test -v
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: conn-opener-go-${{ github.sha }}-${{ matrix.os }}-${{ runner.arch }}
+          path: conn-opener-go*

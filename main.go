@@ -53,24 +53,20 @@ func main() {
 	logger := slog.Default()
 
 	if *useTCP {
-		for i := 0; i < *concurrency; i++ {
+		for i := range *concurrency {
 			logger := logger.With("network", "tcp", "index", i)
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				doTCP(logger, *endpoint, b)
-				wg.Done()
-			}()
+			})
 		}
 	}
 
 	if *useUDP {
-		for i := 0; i < *concurrency; i++ {
+		for i := range *concurrency {
 			logger := logger.With("network", "udp", "index", i)
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				doUDP(logger, *endpoint, b, *packetInterval)
-				wg.Done()
-			}()
+			})
 		}
 	}
 

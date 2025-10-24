@@ -36,7 +36,7 @@ jobs:
         run: go test -v
 
       - name: Upload Binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: conn-opener-go-${{ github.sha }}-${{ matrix.os }}-${{ runner.arch }}
           path: conn-opener-go*

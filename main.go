@@ -1,15 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/database64128/conn-opener-go/conn"
 )
 
 const backoffDuration = 5 * time.Second
@@ -19,6 +21,7 @@ var (
 	payload        = flag.String("payload", "", "TCP payload or UDP message in base64 encoding")
 	useTCP         = flag.Bool("tcp", false, "Use TCP transport")
 	useUDP         = flag.Bool("udp", false, "Use UDP transport")
+	fwmark         = flag.Int("fwmark", 0, "Set the fwmark on Linux or user cookie on FreeBSD")
 	concurrency    = flag.Int("concurrency", 1, "Number of concurrent connections to maintain")
 	packetInterval = flag.Duration("packetInterval", backoffDuration, "Interval for sending UDP packets")
 )
@@ -49,14 +52,20 @@ func main() {
 		}
 	}
 
+	dso := conn.DialerSocketOptions{
+		Fwmark: *fwmark,
+	}
+	dialer := dso.Dialer()
+
 	var wg sync.WaitGroup
+	ctx := context.Background()
 	logger := slog.Default()
 
 	if *useTCP {
 		for i := range *concurrency {
 			logger := logger.With("network", "tcp", "index", i)
 			wg.Go(func() {
-				doTCP(logger, *endpoint, b)
+				doTCP(ctx, logger, &dialer, "tcp", *endpoint, b)
 			})
 		}
 	}
@@ -65,7 +74,7 @@ func main() {
 		for i := range *concurrency {
 			logger := logger.With("network", "udp", "index", i)
 			wg.Go(func() {
-				doUDP(logger, *endpoint, b, *packetInterval)
+				doUDP(ctx, logger, &dialer, "udp", *endpoint, b, *packetInterval)
 			})
 		}
 	}
@@ -73,9 +82,9 @@ func main() {
 	wg.Wait()
 }
 
-func doTCP(logger *slog.Logger, endpoint string, b []byte) {
+func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte) {
 	for {
-		c, err := net.Dial("tcp", endpoint)
+		c, err := dialer.Dial(ctx, network, endpoint)
 		if err != nil {
 			logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 			time.Sleep(backoffDuration)
@@ -100,8 +109,8 @@ func doTCP(logger *slog.Logger, endpoint string, b []byte) {
 	}
 }
 
-func doUDP(logger *slog.Logger, endpoint string, b []byte, interval time.Duration) {
-	c, err := net.Dial("udp", endpoint)
+func doUDP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte, interval time.Duration) {
+	c, err := dialer.Dial(ctx, network, endpoint)
 	if err != nil {
 		logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 		return

@@ -17,6 +17,8 @@ import (
 const backoffDuration = 5 * time.Second
 
 var (
+	tcpNetwork     = flag.String("tcpNetwork", "tcp", "TCP network type (e.g., tcp, tcp4, tcp6)")
+	udpNetwork     = flag.String("udpNetwork", "udp", "UDP network type (e.g., udp, udp4, udp6)")
 	endpoint       = flag.String("endpoint", "", "Network endpoint address")
 	payload        = flag.String("payload", "", "TCP payload or UDP message in base64 encoding")
 	useTCP         = flag.Bool("tcp", false, "Use TCP transport")
@@ -63,18 +65,18 @@ func main() {
 
 	if *useTCP {
 		for i := range *concurrency {
-			logger := logger.With("network", "tcp", "index", i)
+			logger := logger.With("network", *tcpNetwork, "index", i)
 			wg.Go(func() {
-				doTCP(ctx, logger, &dialer, "tcp", *endpoint, b)
+				doTCP(ctx, logger, &dialer, *tcpNetwork, *endpoint, b)
 			})
 		}
 	}
 
 	if *useUDP {
 		for i := range *concurrency {
-			logger := logger.With("network", "udp", "index", i)
+			logger := logger.With("network", *udpNetwork, "index", i)
 			wg.Go(func() {
-				doUDP(ctx, logger, &dialer, "udp", *endpoint, b, *packetInterval)
+				doUDP(ctx, logger, &dialer, *udpNetwork, *endpoint, b, *packetInterval)
 			})
 		}
 	}

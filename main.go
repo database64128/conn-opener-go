@@ -17,37 +17,52 @@ import (
 const backoffDuration = 5 * time.Second
 
 var (
-	tcpNetwork     = flag.String("tcpNetwork", "tcp", "TCP network type (e.g., tcp, tcp4, tcp6)")
-	udpNetwork     = flag.String("udpNetwork", "udp", "UDP network type (e.g., udp, udp4, udp6)")
-	endpoint       = flag.String("endpoint", "", "Network endpoint address")
-	payload        = flag.String("payload", "", "TCP payload or UDP message in base64 encoding")
-	useTCP         = flag.Bool("tcp", false, "Use TCP transport")
-	useUDP         = flag.Bool("udp", false, "Use UDP transport")
-	fwmark         = flag.Int("fwmark", 0, "Set the fwmark on Linux or user cookie on FreeBSD")
-	concurrency    = flag.Int("concurrency", 1, "Number of concurrent connections to maintain")
-	packetInterval = flag.Duration("packetInterval", backoffDuration, "Interval for sending UDP packets")
+	tcpNetwork     string
+	udpNetwork     string
+	endpoint       string
+	payload        string
+	useTCP         bool
+	useUDP         bool
+	fwmark         int
+	concurrency    int
+	packetInterval time.Duration
 )
+
+func init() {
+	flag.StringVar(&tcpNetwork, "tcpNetwork", "tcp", "TCP network type (e.g., tcp, tcp4, tcp6)")
+	flag.StringVar(&udpNetwork, "udpNetwork", "udp", "UDP network type (e.g., udp, udp4, udp6)")
+	flag.StringVar(&endpoint, "endpoint", "", "Network endpoint address")
+	flag.StringVar(&payload, "payload", "", "TCP payload or UDP message in base64 encoding")
+	flag.BoolVar(&useTCP, "tcp", false, "Use TCP transport")
+	flag.BoolVar(&useUDP, "udp", false, "Use UDP transport")
+	flag.IntVar(&fwmark, "fwmark", 0, "Set the fwmark on Linux or user cookie on FreeBSD")
+	flag.IntVar(&concurrency, "concurrency", 1, "Number of concurrent connections to maintain")
+	flag.DurationVar(&packetInterval, "packetInterval", backoffDuration, "Interval for sending UDP packets")
+}
 
 func main() {
 	flag.Parse()
 
-	if !*useTCP && !*useUDP {
-		fmt.Fprintln(os.Stderr, "Use of either TCP or UDP is required.")
-		flag.Usage()
-		os.Exit(1)
+	if !useTCP && !useUDP {
+		badFlagValue("Use of either TCP or UDP is required.")
 	}
 
-	if *concurrency < 1 {
-		fmt.Fprintln(os.Stderr, "Concurrency must be at least 1.")
-		flag.Usage()
-		os.Exit(1)
+	if concurrency < 1 {
+		badFlagValue("Concurrency must be at least 1.")
+	}
+
+	if packetInterval <= 0 {
+		badFlagValue("Packet interval must be greater than 0.")
+	}
+
+	if endpoint == "" {
+		badFlagValue("Endpoint is required.")
 	}
 
 	var b []byte
-
-	if *payload != "" {
+	if payload != "" {
 		var err error
-		b, err = base64.StdEncoding.DecodeString(*payload)
+		b, err = base64.StdEncoding.DecodeString(payload)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to decode payload: %v\n", err)
 			os.Exit(1)
@@ -55,7 +70,7 @@ func main() {
 	}
 
 	dso := conn.DialerSocketOptions{
-		Fwmark: *fwmark,
+		Fwmark: fwmark,
 	}
 	dialer := dso.Dialer()
 
@@ -63,25 +78,31 @@ func main() {
 	ctx := context.Background()
 	logger := slog.Default()
 
-	if *useTCP {
-		for i := range *concurrency {
-			logger := logger.With("network", *tcpNetwork, "index", i)
+	if useTCP {
+		for i := range concurrency {
+			logger := logger.With("network", tcpNetwork, "index", i)
 			wg.Go(func() {
-				doTCP(ctx, logger, &dialer, *tcpNetwork, *endpoint, b)
+				doTCP(ctx, logger, &dialer, tcpNetwork, endpoint, b)
 			})
 		}
 	}
 
-	if *useUDP {
-		for i := range *concurrency {
-			logger := logger.With("network", *udpNetwork, "index", i)
+	if useUDP {
+		for i := range concurrency {
+			logger := logger.With("network", udpNetwork, "index", i)
 			wg.Go(func() {
-				doUDP(ctx, logger, &dialer, *udpNetwork, *endpoint, b, *packetInterval)
+				doUDP(ctx, logger, &dialer, udpNetwork, endpoint, b, packetInterval)
 			})
 		}
 	}
 
 	wg.Wait()
+}
+
+func badFlagValue(a ...any) {
+	fmt.Fprintln(os.Stderr, a...)
+	flag.Usage()
+	os.Exit(1)
 }
 
 func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte) {

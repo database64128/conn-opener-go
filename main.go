@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ var (
 	payload        string
 	useTCP         bool
 	useUDP         bool
+	noDrainRead    bool
 	fwmark         int
 	concurrency    int
 	packetInterval time.Duration
@@ -35,6 +37,7 @@ func init() {
 	flag.StringVar(&payload, "payload", "", "TCP payload or UDP message in base64 encoding")
 	flag.BoolVar(&useTCP, "tcp", false, "Use TCP transport")
 	flag.BoolVar(&useUDP, "udp", false, "Use UDP transport")
+	flag.BoolVar(&noDrainRead, "noDrainRead", false, "Do not drain read TCP connections until EOF; close immediately after writing payload")
 	flag.IntVar(&fwmark, "fwmark", 0, "Set the fwmark on Linux or user cookie on FreeBSD")
 	flag.IntVar(&concurrency, "concurrency", 1, "Number of concurrent connections to maintain")
 	flag.DurationVar(&packetInterval, "packetInterval", backoffDuration, "Interval for sending UDP packets")
@@ -53,6 +56,18 @@ func main() {
 
 	if packetInterval <= 0 {
 		badFlagValue("Packet interval must be greater than 0.")
+	}
+
+	switch tcpNetwork {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		badFlagValue("Invalid TCP network type. Must be one of: tcp, tcp4, tcp6.")
+	}
+
+	switch udpNetwork {
+	case "udp", "udp4", "udp6":
+	default:
+		badFlagValue("Invalid UDP network type. Must be one of: udp, udp4, udp6.")
 	}
 
 	if endpoint == "" {
@@ -82,7 +97,11 @@ func main() {
 		for i := range concurrency {
 			logger := logger.With("network", tcpNetwork, "index", i)
 			wg.Go(func() {
-				doTCP(ctx, logger, &dialer, tcpNetwork, endpoint, b)
+				for {
+					if !doTCP(ctx, logger, &dialer, tcpNetwork, endpoint, b) {
+						time.Sleep(backoffDuration)
+					}
+				}
 			})
 		}
 	}
@@ -105,31 +124,36 @@ func badFlagValue(a ...any) {
 	os.Exit(1)
 }
 
-func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte) {
-	for {
-		c, err := dialer.Dial(ctx, network, endpoint)
-		if err != nil {
-			logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
-			time.Sleep(backoffDuration)
-			continue
-		}
+func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte) bool {
+	c, err := dialer.Dial(ctx, network, endpoint)
+	if err != nil {
+		logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
+		return false
+	}
+	defer c.Close()
 
-		if len(b) > 0 {
-			if _, err = c.Write(b); err != nil {
-				logger.Warn("Failed to write payload", "error", err)
-				c.Close()
-				time.Sleep(backoffDuration)
-				continue
-			}
-		}
-
-		n, err := io.Copy(io.Discard, c)
-		logger.Info("Read bytes", "bytes", n, "error", err)
-		c.Close()
-		if err != nil {
-			time.Sleep(backoffDuration)
+	if len(b) > 0 {
+		if _, err = c.Write(b); err != nil {
+			logger.Warn("Failed to write payload", "error", err)
+			return false
 		}
 	}
+
+	if noDrainRead {
+		// Without draining read, we have to force a connection reset,
+		// or we'd run out of local ports because the connection would
+		// linger in TIME_WAIT state.
+		if err := c.(*net.TCPConn).SetLinger(0); err != nil {
+			logger.Warn("Failed to set linger option", "error", err)
+			return false
+		}
+		logger.Info("Closing connection without draining read")
+		return true
+	}
+
+	n, err := io.Copy(io.Discard, c)
+	logger.Info("Read bytes", "bytes", n, "error", err)
+	return err == nil
 }
 
 func doUDP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte, interval time.Duration) {

@@ -28,19 +28,6 @@ func (fns setFuncSlice) controlContextFunc() func(ctx context.Context, network, 
 	}
 }
 
-// Dialer wraps a [net.Dialer] and provides a subjectively nicer API.
-type Dialer struct {
-	td  net.Dialer
-	fns setFuncSlice
-}
-
-// Dial wraps [net.Dialer.DialContext].
-func (d *Dialer) Dial(ctx context.Context, network, address string) (c net.Conn, err error) {
-	td := d.td
-	td.ControlContext = d.fns.controlContextFunc()
-	return td.DialContext(ctx, network, address)
-}
-
 // DialerSocketOptions contains dialer-specific socket options.
 type DialerSocketOptions struct {
 	// Fwmark sets the dialer's fwmark on Linux, or user cookie on FreeBSD.
@@ -49,9 +36,9 @@ type DialerSocketOptions struct {
 	Fwmark int
 }
 
-// Dialer returns a [Dialer] with a control function that sets the socket options.
-func (dso DialerSocketOptions) Dialer() Dialer {
-	return Dialer{
-		fns: dso.buildSetFns(),
+// Dialer returns a [net.Dialer] with a control function that sets the socket options.
+func (dso DialerSocketOptions) Dialer() net.Dialer {
+	return net.Dialer{
+		ControlContext: dso.buildSetFns().controlContextFunc(),
 	}
 }

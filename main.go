@@ -126,8 +126,8 @@ func badFlagValue(a ...any) {
 	os.Exit(1)
 }
 
-func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte) bool {
-	c, err := dialer.Dial(ctx, network, endpoint)
+func doTCP(ctx context.Context, logger *slog.Logger, dialer *net.Dialer, network, endpoint string, b []byte) bool {
+	c, err := dialer.DialContext(ctx, network, endpoint)
 	if err != nil {
 		logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 		return false
@@ -158,8 +158,8 @@ func doTCP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, networ
 	return err == nil
 }
 
-func doUDP(ctx context.Context, logger *slog.Logger, dialer *conn.Dialer, network, endpoint string, b []byte, interval time.Duration) {
-	c, err := dialer.Dial(ctx, network, endpoint)
+func doUDP(ctx context.Context, logger *slog.Logger, dialer *net.Dialer, network, endpoint string, b []byte, interval time.Duration) {
+	c, err := dialer.DialContext(ctx, network, endpoint)
 	if err != nil {
 		logger.Warn("Failed to dial endpoint", "endpoint", endpoint, "error", err)
 		return

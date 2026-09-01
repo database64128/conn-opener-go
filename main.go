@@ -28,6 +28,7 @@ var (
 	fwmark         int
 	concurrency    int
 	packetInterval time.Duration
+	logLevel       slog.Level
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	flag.IntVar(&fwmark, "fwmark", 0, "Set the fwmark on Linux or user cookie on FreeBSD")
 	flag.IntVar(&concurrency, "concurrency", 1, "Number of concurrent connections to maintain")
 	flag.DurationVar(&packetInterval, "packetInterval", backoffDuration, "Interval for sending UDP packets")
+	flag.TextVar(&logLevel, "logLevel", slog.LevelInfo, "Log level (e.g., debug, info, warn, error)")
 }
 
 func main() {
@@ -91,7 +93,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	ctx := context.Background()
-	logger := slog.Default()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 
 	if useTCP {
 		for i := range concurrency {
